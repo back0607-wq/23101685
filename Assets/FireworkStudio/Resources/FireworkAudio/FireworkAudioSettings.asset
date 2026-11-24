@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c28e5421fb30556d8550636f26520c52, type: 3}
+  m_Name: FireworkAudioSettings
+  m_EditorClassIdentifier: 
+  audioEnabled: 1
+  masterVolume: 0.55
+  launchEnabled: 1
+  launchVolume: 0.4
+  flightEnabled: 1
+  flightVolume: 0.18
+  burstEnabled: 1
+  burstVolume: 0.68
+  afterburstEnabled: 1
+  afterburstVolume: 0.26
+  crackleEnabled: 1
+  crackleVolume: 0.42
+  useProjectSpatializer: 1
+  distanceFiltering: 1
+  propagationDelay: 1
+  soundSpeed: 343
+  skyAudibleDistance: 165
+  outputMixer: {fileID: 0}
+  maxVoices: 32
+  maxCrackleVoices: 20
+  maxFlightVoices: 4
+  reduceOverlap: 1

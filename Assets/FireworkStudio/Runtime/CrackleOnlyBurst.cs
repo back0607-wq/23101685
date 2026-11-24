@@ -130,7 +130,7 @@ namespace FireworkStudio
             var ep=new ParticleSystem.EmitParams();
             ep.position=centre;
             ep.velocity=Vector3.zero;
-            ep.startLifetime=Next(.10f,.18f);
+            ep.startLifetime=Next(.14f,.24f);
             ep.startSize=Next(.70f,1.05f)*options.sizeMultiplier*(pop.repeat?.8f:1f);
             ep.startColor=Color.Lerp(tint,Color.white,.12f);
             flashes.Emit(ep,1); remainingBudget--;
@@ -140,8 +140,8 @@ namespace FireworkStudio
             {
                 ep.position=centre;
                 ep.velocity=OnSphere()*Next(2.0f,5.2f);
-                ep.startLifetime=Next(.22f,.58f);
-                ep.startSize=Next(.24f,.40f)*options.sizeMultiplier;
+                ep.startLifetime=Next(.38f,.72f);
+                ep.startSize=Next(.32f,.48f)*options.sizeMultiplier;
                 Color c=Color.Lerp(tint,colors[(pop.cluster+i)%colors.Length],.18f);
                 c*=Next(.82f,1f); c.a=1f;
                 ep.startColor=c;

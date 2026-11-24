@@ -108,6 +108,43 @@ namespace FireworkStudio
             }
         }
 
+        // Use real world-space depth for effect geometry; Sample remains the flat design outline.
+        public static Vector3 SampleVolume(FireworkPattern pattern, int index, int count)
+        {
+            count = Mathf.Max(1, count);
+            int i = Mathf.Clamp(index, 0, count - 1);
+            Vector3 outline = Sample(pattern, i, count);
+            switch (pattern)
+            {
+                // These layouts already distribute particles in three dimensions.
+                case FireworkPattern.Peony:
+                case FireworkPattern.Willow:
+                case FireworkPattern.CometBurst:
+                case FireworkPattern.Crown:
+                case FireworkPattern.Palm:
+                    return outline;
+            }
+
+            float phase = i * 2.39996323f;
+            if (pattern == FireworkPattern.Ring || pattern == FireworkPattern.DoubleRing)
+            {
+                // A torus has a circular silhouette and visible thickness from the side.
+                float radius = outline.magnitude;
+                float tube = pattern == FireworkPattern.Ring ? 0.20f : 0.13f;
+                Vector3 radial = outline.normalized;
+                return radial * (radius + tube * Mathf.Cos(phase))
+                    + Vector3.forward * (tube * Mathf.Sin(phase));
+            }
+
+            // A rounded shell: one third preserves the silhouette; the rest fills the
+            // front and back caps. Interleaved depth avoids stacked parallel sheets.
+            float latitude = i % 3 == 0 ? 0.12f * Mathf.Sin(phase)
+                : (Mathf.Repeat((i + 0.5f) * 0.618033989f, 1f) * 1.8f - 0.9f);
+            float section = Mathf.Sqrt(Mathf.Max(0f, 1f - latitude * latitude));
+            return new Vector3(outline.x * section, outline.y * section,
+                outline.z + latitude * 0.72f);
+        }
+
         static Vector3 Ring(float angle, float radius)
         { return new Vector3(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius, 0f); }
         static Vector3 Polygon(float u, int corners, bool alternate)
@@ -140,7 +177,7 @@ namespace FireworkStudio
             for (int step=0;step<n;step++)
             {
                 int i=order[step];
-                Vector3 p=Sample(pattern,i,n)*o.radius;
+                Vector3 p=SampleVolume(pattern,i,n)*o.radius;
                 Vector3 jitter=new Vector3(Next(rng)*2f-1f,Next(rng)*2f-1f,Next(rng)*2f-1f)*o.positionJitter*o.radius;
                 p+=jitter;
                 float time=o.startDelay + o.spreadDuration*(step + Next(rng)*.8f)/n;

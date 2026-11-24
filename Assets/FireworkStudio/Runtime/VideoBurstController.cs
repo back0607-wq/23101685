@@ -12,11 +12,15 @@ namespace FireworkStudio
         Color customColor;
         Color[] CurrentColors() { return customMode ? new[] {customColor, Color.Lerp(customColor, new Color(0.25f,0.25f,0.25f), 0.12f), customColor * 0.83f} : FireworkPaletteUtil.GetColors(palette); }
         Color CurrentColor() { var colors=CurrentColors(); return colors[Random.Range(0,colors.Length)]; }
+        Quaternion shapeRotation;
+        float terminalTime = 2f;
+        readonly System.Collections.Generic.List<Vector3> endpoints = new System.Collections.Generic.List<Vector3>();
         Light flash;
         ParticleSystem mainBurst;
         ParticleSystem highlights;
         ParticleSystem embers;
         ParticleSystem smoke;
+        ParticleSystem ornaments;
         Material smokeMaterial;
         Material mainGlowMaterial;
         Material twinkleGlowMaterial;
@@ -42,7 +46,7 @@ namespace FireworkStudio
 
         // Per-shot switch. Never modify the scene's global AfterburstSettings here.
         public static void Spawn(Vector3 position, FireworkPattern pattern, FireworkPalette palette,
-            bool useCustomColor, Color custom, bool includeAfterburst)
+            bool useCustomColor, Color custom, bool includeAfterburst, Quaternion? orientation = null)
         {
             var go = new GameObject(includeAfterburst ? "Firework - Combined" : "Firework - Main Trails Only");
             go.transform.position = position;
@@ -51,16 +55,24 @@ namespace FireworkStudio
             fx.palette = palette;
             fx.customMode = useCustomColor;
             fx.customColor = custom;
+            var viewer = Camera.main;
+            fx.shapeRotation = orientation ?? (viewer != null ? Quaternion.LookRotation((position - viewer.transform.position).normalized, Vector3.up) : Quaternion.identity);
+            if (includeAfterburst)
+            {
+                var afterburst = FireworkStudio.Secondary.AfterburstSettings.GetOrCreate();
+                fx.terminalTime = afterburst.startDelay + afterburst.terminalFirstPopDelay;
+            }
             fx.Build();
             if (includeAfterburst)
-                FireworkStudio.Secondary.AfterburstSequence.Attach(go, position, palette);
+                FireworkStudio.Secondary.AfterburstSequence.Attach(go, position, palette, pattern, fx.shapeRotation, useCustomColor ? (Color?)custom : null, fx.endpoints);
         }
 
         void Build()
         {
             // A dedicated material keeps main-burst tuning separate from the terminal crackle.
-            mainGlowMaterial = NewGlowMaterial(5.2f);
-            twinkleGlowMaterial = NewGlowMaterial(4.5f);
+            mainGlowMaterial = NewGlowMaterial(5.6f);
+            twinkleGlowMaterial = NewGlowMaterial(7f);
+            if (twinkleGlowMaterial.HasProperty("_StarAmount")) twinkleGlowMaterial.SetFloat("_StarAmount", 1f);
             mainBurst = NewLayer("Main glow", 0.32f, 0.26f, 1300, false);
             highlights = NewLayer("Twinkles", 0.17f, 0.12f, 350, false);
             var mainRenderer = mainBurst.GetComponent<ParticleSystemRenderer>();
@@ -71,11 +83,19 @@ namespace FireworkStudio
             twinkleRenderer.trailMaterial = twinkleGlowMaterial;
             var mainTrails = mainBurst.trails;
             mainTrails.ratio = 0.70f;
-            mainTrails.lifetime = 0.20f;
+            mainTrails.lifetime = 0.16f;
+            mainTrails.widthOverTrail = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.9f, 1f, 0f));
             var twinkleTrails = highlights.trails;
             twinkleTrails.ratio = 0.42f;
-            twinkleTrails.lifetime = 0.11f;
+            twinkleTrails.lifetime = 0.09f;
             embers = NewLayer("Falling embers", 0.15f, 0.38f, 350, true);
+            ornaments = NewLayer("Starlight rings and glints", 0.6f, 0f, 256, true);
+            ornaments.GetComponent<ParticleSystemRenderer>().sharedMaterial = twinkleGlowMaterial;
+            var ornamentColor = ornaments.colorOverLifetime;
+            var starlight = new Gradient();
+            starlight.SetKeys(new[] { new GradientColorKey(new Color(0.7f,0.9f,1f),0f), new GradientColorKey(Color.white,0.3f), new GradientColorKey(new Color(1f,0.5f,0.85f),1f) },
+                new[] { new GradientAlphaKey(0f,0f), new GradientAlphaKey(1f,0.12f), new GradientAlphaKey(0.7f,0.6f), new GradientAlphaKey(0f,1f) });
+            ornamentColor.color = starlight;
             BuildSmoke();
             var lightGo = new GameObject("Short flash");
             lightGo.transform.SetParent(transform, false);
@@ -128,6 +148,9 @@ namespace FireworkStudio
             grad.SetKeys(new [] {new GradientColorKey(Color.white,0),new GradientColorKey(Color.white,1)},
                 new [] {new GradientAlphaKey(0.9f,0),new GradientAlphaKey(0.9f,0.2f),new GradientAlphaKey(0.3f,0.7f),new GradientAlphaKey(0,1)});
             color.color=grad;
+            var sizeOverLife = ps.sizeOverLifetime;
+            sizeOverLife.enabled = true;
+            sizeOverLife.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0f, 0.65f), new Keyframe(0.12f, 1f), new Keyframe(0.65f, 0.55f), new Keyframe(1f, 0.08f)));
             return ps;
         }
 
@@ -136,9 +159,10 @@ namespace FireworkStudio
             flash.intensity=11f;
             FireworkAudio.MainBurst(transform.position, pattern); // actual main VFX onset
             EmitSmoke(18, 0.10f);
-            Emit(mainBurst, 155, 8.5f, 13.0f, 1.9f, 2.8f, 0.19f, 0.34f, true);
+            Emit(mainBurst, 220, 13.2f, 13.8f, 2.0f, 2.6f, 0.42f, 0.62f, true);
             yield return new WaitForSeconds(0.11f);
-            Emit(highlights, 85, 4.0f, 9.0f, 0.6f, 1.6f, 0.095f, 0.18f, false);
+            EmitOrnaments();
+            Emit(highlights, 72, 12.4f, 13.2f, 0.7f, 1.4f, 0.11f, 0.20f, true);
             EmitSmoke(10, 0.02f);
             yield return new WaitForSeconds(0.25f);
             Emit(embers, 48, 1.5f, 4.2f, 1.2f, 2.3f, 0.05f, 0.11f, false);
@@ -152,6 +176,37 @@ namespace FireworkStudio
                 yield return null;
             }
             Destroy(gameObject, 5f);
+        }
+
+        void EmitOrnaments()
+        {
+            var colors = CurrentColors();
+            var ep = new ParticleSystem.EmitParams();
+            // Two delicate rings frame the silhouette while large glints linger around it.
+            for (int ring = 0; ring < 2; ring++)
+            for (int i = 0; i < 64; i++)
+            {
+                float a = i * Mathf.PI * 2f / 64f;
+                Quaternion tilt = ring == 0 ? Quaternion.Euler(55f, 0f, 20f) : Quaternion.Euler(-30f, 65f, -15f);
+                Vector3 radial = shapeRotation * (tilt * new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0f));
+                ep.position = transform.position + radial * (ring == 0 ? 4.2f : 7.6f);
+                ep.velocity = radial * (ring == 0 ? 1.4f : 2.1f);
+                ep.startLifetime = ring == 0 ? 1.15f : 1.55f;
+                ep.startSize = ring == 0 ? 0.8f : 1.0f;
+                ep.startColor = colors[ring % colors.Length];
+                ornaments.Emit(ep, 1);
+            }
+            for (int i = 0; i < 16; i++)
+            {
+                Vector3 point = shapeRotation * CrackleOnlyLayout.SampleVolume(pattern, i, 16);
+                ep.position = transform.position + point * 11.5f;
+                ep.velocity = point * 0.75f;
+                ep.startLifetime = Random.Range(1.1f, 1.8f);
+                ep.startSize = Random.Range(1.7f, 2.4f);
+                ep.startColor = Color.Lerp(colors[i % colors.Length], Color.white, 0.18f);
+                ornaments.Emit(ep, 1);
+            }
+            ornaments.Play();
         }
 
         void OnDestroy()
@@ -213,7 +268,7 @@ namespace FireworkStudio
             for(int i=0;i<count;i++)
             {
                 var ep=new ParticleSystem.EmitParams();
-                ep.position=transform.position + Random.insideUnitSphere*0.2f; // World-space smoke origin.
+                ep.position=transform.position + Random.insideUnitSphere*2.2f; // A small 3D cloud around the world-space burst.
                 ep.velocity=Random.onUnitSphere*Random.Range(0.5f,1.9f)+Vector3.up*verticalBias;
                 ep.startLifetime=Random.Range(1.45f,3.1f);
                 ep.startSize=Random.Range(0.45f,1.15f);
@@ -228,102 +283,31 @@ namespace FireworkStudio
             var colors=CurrentColors();
             for(int i=0;i<count;i++)
             {
-                var dir=shaped?Direction(i,count):Random.onUnitSphere;
+                var dir = shaped ? shapeRotation * CrackleOnlyLayout.SampleVolume(pattern, i, count) : Random.onUnitSphere;
                 var ep=new ParticleSystem.EmitParams();
                 ep.position=transform.position; // World-space simulation: emit at actual sky burst coordinates.
                 ep.velocity=dir*Random.Range(sMin,sMax);
                 ep.startLifetime=Random.Range(lMin,lMax);
+                if (ps == mainBurst)
+                {
+                    float endTime = Mathf.Min(terminalTime, ep.startLifetime * 0.94f);
+                    endpoints.Add(transform.position + ep.velocity * endTime + 0.5f * Physics.gravity * 0.26f * endTime * endTime);
+                }
                 ep.startSize=Random.Range(zMin,zMax);
                 // Keep emission vivid: excessive HDR particle RGB can clip channels to white.
-                ep.startColor=colors[Random.Range(0,colors.Length)]*Random.Range(1.1f,1.55f);
+                Color tint = colors[i % colors.Length];
+                if (shaped)
+                {
+                    float depth = (Quaternion.Inverse(shapeRotation) * dir).z;
+                    // Bright foreground sparks and cooler back-shell sparks support depth cues.
+                    tint = Color.Lerp(tint, new Color(0.32f, 0.48f, 1f), Mathf.Clamp01(depth) * 0.25f);
+                    tint *= Mathf.Lerp(1.15f, 0.78f, Mathf.InverseLerp(-0.72f, 0.72f, depth));
+                }
+                ep.startColor=tint*Random.Range(1.05f,1.30f);
                 ps.Emit(ep,1);
             }
             ps.Play();
         }
 
-        Vector3 Direction(int i,int count)
-        {
-            float a=i*2f*Mathf.PI/count;
-            switch(pattern)
-            {
-                case FireworkPattern.Ring:
-                    return new Vector3(Mathf.Cos(a),Random.Range(-0.06f,0.06f),Mathf.Sin(a)).normalized;
-                case FireworkPattern.DoubleRing:
-                    return new Vector3(Mathf.Cos(a), i%2==0?0.20f:-0.20f,Mathf.Sin(a)).normalized;
-                case FireworkPattern.Flower:
-                    float radius=0.55f+0.45f*Mathf.Cos(a*6f);
-                    return new Vector3(Mathf.Cos(a)*radius,Random.Range(-0.14f,0.14f),Mathf.Sin(a)*radius).normalized;
-                case FireworkPattern.Willow:
-                    var up=Random.onUnitSphere;up.y=Mathf.Abs(up.y)*0.7f+0.3f;return up.normalized;
-                case FireworkPattern.Star:
-                {
-                    float r=(i%2==0)?1f:0.46f;
-                    return new Vector3(Mathf.Cos(a)*r, Mathf.Sin(a)*r, Random.Range(-0.04f,0.04f)).normalized;
-                }
-                case FireworkPattern.Heart:
-                {
-                    float t=a;
-                    float x=16f*Mathf.Pow(Mathf.Sin(t),3f);
-                    float y=13f*Mathf.Cos(t)-5f*Mathf.Cos(2f*t)-2f*Mathf.Cos(3f*t)-Mathf.Cos(4f*t);
-                    return new Vector3(x,y,Random.Range(-0.20f,0.20f)).normalized;
-                }
-                case FireworkPattern.Spiral:
-                    return new Vector3(Mathf.Cos(a)*Mathf.Lerp(0.25f,1f,i/(float)count),
-                        (i/(float)count-0.5f)*0.9f,Mathf.Sin(a)*Mathf.Lerp(0.25f,1f,i/(float)count)).normalized;
-                case FireworkPattern.Crown:
-                    return new Vector3(Mathf.Cos(a),Mathf.Abs(Mathf.Sin(a*5f))*0.8f+0.2f,Mathf.Sin(a)).normalized;
-                case FireworkPattern.Snowflake:
-                {
-                    float ray=Mathf.Round(a/(Mathf.PI/3f))*(Mathf.PI/3f);
-                    return new Vector3(Mathf.Cos(ray),Mathf.Sin(ray),Random.Range(-0.05f,0.05f)).normalized;
-                }
-                case FireworkPattern.Butterfly:
-                {
-                    float wing = (i % 2 == 0) ? -1f : 1f;
-                    float t = (i / (float)count) * Mathf.PI * 4f;
-                    float x = Mathf.Sin(t) * (1.1f + .4f*Mathf.Cos(3f*t));
-                    float y = Mathf.Cos(t) * (.65f + .25f*Mathf.Cos(2f*t));
-                    return new Vector3(wing*Mathf.Abs(x), y, Random.Range(-.18f,.18f)).normalized;
-                }
-                case FireworkPattern.Palm:
-                {
-                    float spoke = Mathf.Floor(i / 8f) * (Mathf.PI*2f/10f);
-                    return new Vector3(Mathf.Cos(spoke)*Random.Range(.45f,1f), Random.Range(.45f,1f), Mathf.Sin(spoke)*Random.Range(.45f,1f)).normalized;
-                }
-                case FireworkPattern.Galaxy:
-                {
-                    float turn = a*3.0f;
-                    float arm = (i%3)*Mathf.PI*2f/3f;
-                    float elev = Mathf.Lerp(-.35f,.35f,(i%23)/22f);
-                    return new Vector3(Mathf.Cos(turn+arm), elev, Mathf.Sin(turn+arm)).normalized;
-                }
-                case FireworkPattern.Diamond:
-                {
-                    float x = Mathf.Cos(a); float y = Mathf.Sin(a);
-                    return new Vector3(x, y, Random.Range(-.10f,.10f)).normalized;
-                }
-                case FireworkPattern.FourLeaf:
-                {
-                    float petal = .48f + .52f * Mathf.Abs(Mathf.Sin(a*2f));
-                    return new Vector3(Mathf.Cos(a)*petal, Mathf.Sin(a)*petal, Random.Range(-.10f,.10f)).normalized;
-                }
-                case FireworkPattern.Cross:
-                {
-                    float ray = Mathf.Round(a/(Mathf.PI/2f))*(Mathf.PI/2f);
-                    return new Vector3(Mathf.Cos(ray), Mathf.Sin(ray), Random.Range(-.12f,.12f)).normalized;
-                }
-                case FireworkPattern.Fan:
-                {
-                    float spread = Mathf.Lerp(-1.28f,1.28f,i/(float)Mathf.Max(1,count-1));
-                    return new Vector3(Mathf.Sin(spread), .40f+Mathf.Cos(spread), Random.Range(-.17f,.17f)).normalized;
-                }
-                case FireworkPattern.DoubleFlower:
-                {
-                    float petal = .45f + .55f*Mathf.Abs(Mathf.Sin(a*7f));
-                    return new Vector3(Mathf.Cos(a)*petal, Mathf.Sin(a)*petal, Random.Range(-.12f,.12f)).normalized;
-                }
-                default: return Random.onUnitSphere;
-            }
-        }
     }
 }

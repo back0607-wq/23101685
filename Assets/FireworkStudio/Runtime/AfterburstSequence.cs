@@ -20,6 +20,9 @@ namespace FireworkStudio.Secondary
         Material crackleMaterial;
         Texture2D texture;
         bool reserved;
+        FireworkPattern? sourcePattern;
+        Quaternion orientation = Quaternion.identity;
+        Color? sourceTint;
         GameObject effectRoot;
         struct StreakEndpoint
         {
@@ -28,7 +31,9 @@ namespace FireworkStudio.Secondary
         }
         readonly System.Collections.Generic.List<StreakEndpoint> streakEnds = new System.Collections.Generic.List<StreakEndpoint>();
 
-        public static void Attach(GameObject burst, Vector3 origin, FireworkPalette palette)
+        public static void Attach(GameObject burst, Vector3 origin, FireworkPalette palette,
+            FireworkPattern? sourcePattern = null, Quaternion? orientation = null, Color? sourceTint = null,
+            System.Collections.Generic.List<Vector3> mainEndpoints = null)
         {
             var settings = AfterburstSettings.GetOrCreate();
             if (!settings.enabledAfterburst) { Debug.LogWarning("[Firework Crackle] Afterburst disabled in Settings."); return; }
@@ -41,6 +46,12 @@ namespace FireworkStudio.Secondary
             sequence.origin = origin;
             sequence.palette = palette;
             sequence.settings = settings;
+            sequence.sourcePattern = sourcePattern;
+            sequence.orientation = orientation ?? Quaternion.identity;
+            sequence.sourceTint = sourceTint;
+            if (mainEndpoints != null)
+                foreach (var point in mainEndpoints)
+                    sequence.streakEnds.Add(new StreakEndpoint { position = point, arrivalTime = settings.terminalFirstPopDelay });
             sequence.StartCoroutine(sequence.Play());
         }
 
@@ -64,7 +75,7 @@ namespace FireworkStudio.Secondary
             var layerC = Layer(effectRoot.transform,"Afterburst - falling embers",0.28f,0.48f);
             var crackle = Layer(effectRoot.transform,"Terminal crackle - rapid microbursts",0.10f,0.17f, crackleMaterial);
             var flashes = Layer(effectRoot.transform,"Terminal crackle - bright terminal pops",0.02f,0.32f, crackleMaterial);
-            var chosen = ChooseStyle(settings.style);
+            var chosen = sourcePattern.HasValue ? AfterburstStyle.StarSphere : ChooseStyle(settings.style);
             int budget = Mathf.Max(40, settings.maxParticlesPerBurst);
             // Capture predicted world-space endpoints of real primary streaks.
             // This is relative to the afterburst start, not the rocket launch.
@@ -111,7 +122,7 @@ namespace FireworkStudio.Secondary
             // Start after the streaks dim. Vary cluster position/time/energy.
             int clusters = Mathf.Max(1, settings.terminalClusters);
             int maximumSparks = Mathf.Max(2, settings.sparksPerCluster);
-            var colors = FireworkPaletteUtil.GetColors(palette);
+            var colors = sourceTint.HasValue ? new[] { sourceTint.Value } : FireworkPaletteUtil.GetColors(palette);
             var ep = new ParticleSystem.EmitParams();
             float spread = Mathf.Max(0.08f, settings.terminalSpreadDelay);
             float step = spread / clusters;
@@ -135,7 +146,7 @@ namespace FireworkStudio.Secondary
                 ep.velocity = Vector3.zero;
                 ep.startSize = UnityEngine.Random.Range(0.48f, 0.78f) * settings.sizeMultiplier * settings.terminalSizeMultiplier;
                 ep.startLifetime = UnityEngine.Random.Range(0.11f, 0.20f);
-                ep.startColor = Color.Lerp(tint, Color.white, 0.85f) * settings.terminalSparkBrightness * 1.6f;
+                ep.startColor = Color.Lerp(tint, Color.white, 0.35f) * settings.terminalSparkBrightness;
                 flashes.Emit(ep, 1);
                 FireworkStudio.FireworkAudio.Crackle(centre); // actual endpoint, actual terminal-pop time
                 for (int i = 0; i < sparkCount; i++)
@@ -144,7 +155,7 @@ namespace FireworkStudio.Secondary
                     ep.velocity = UnityEngine.Random.onUnitSphere * UnityEngine.Random.Range(1.8f, 5.5f);
                     ep.startSize = UnityEngine.Random.Range(0.19f, 0.34f) * settings.sizeMultiplier * settings.terminalSizeMultiplier;
                     ep.startLifetime = UnityEngine.Random.Range(0.24f, 0.56f);
-                    Color flash = Color.Lerp(tint, Color.white, UnityEngine.Random.Range(0.65f, 0.95f));
+                    Color flash = Color.Lerp(tint, Color.white, UnityEngine.Random.Range(0.12f, 0.35f));
                     ep.startColor = flash * settings.terminalSparkBrightness * 1.5f;
                     ps.Emit(ep, 1);
                 }
@@ -189,21 +200,25 @@ namespace FireworkStudio.Secondary
 
         void EmitStyled(ParticleSystem ps,AfterburstStyle style,int count,bool late,bool trackEndpoints=false)
         {
-            var pal=FireworkPaletteUtil.GetColors(palette);
+            var pal = sourceTint.HasValue ? new[] { sourceTint.Value } : FireworkPaletteUtil.GetColors(palette);
             var p=new ParticleSystem.EmitParams();
             count=Mathf.Max(1,count);
             for(int i=0;i<count;i++)
             {
-                Vector3 direction=Direction(style,i,count);
+                Vector3 direction = sourcePattern.HasValue
+                    ? orientation * CrackleOnlyLayout.SampleVolume(sourcePattern.Value, i, count)
+                    : Direction(style,i,count);
                 if(style==AfterburstStyle.CrackleConstellation) direction=UnityEngine.Random.onUnitSphere;
-                direction=(direction+UnityEngine.Random.insideUnitSphere*.055f).normalized;
-                float speed=UnityEngine.Random.Range(late?2.3f:4.6f,late?5.2f:8.0f)*settings.sizeMultiplier;
+                if (!sourcePattern.HasValue) direction=(direction+UnityEngine.Random.insideUnitSphere*.055f).normalized;
+                float speed = sourcePattern.HasValue
+                    ? UnityEngine.Random.Range(late ? 5.8f : 7.8f, late ? 6.2f : 8.2f) * settings.sizeMultiplier
+                    : UnityEngine.Random.Range(late?2.3f:4.6f,late?5.2f:8.0f)*settings.sizeMultiplier;
                 if(style==AfterburstStyle.GoldenWillow) speed*=.76f;
                 if(style==AfterburstStyle.CrystalSnow) speed*=.8f;
                 p.position=origin; // world-space, sky location
                 p.velocity=direction*speed;
                 p.startLifetime=UnityEngine.Random.Range(late?0.65f:1.35f,late?1.3f:2.4f);
-                if (trackEndpoints)
+                if (trackEndpoints && !sourcePattern.HasValue)
                 {
                     // Unity particles: gravity = Physics.gravity * main.gravityModifier.
                     // Estimate positions at roughly 75-95% of their life.

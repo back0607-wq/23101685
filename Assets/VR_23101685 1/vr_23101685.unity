@@ -239,6 +239,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 7272110783782217534, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
+      propertyPath: m_RenderPostProcessing
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -13949,13 +13953,13 @@ MonoBehaviour:
     m_Value: 1
   threshold:
     m_OverrideState: 1
-    m_Value: 0.92
+    m_Value: 0.7
   intensity:
     m_OverrideState: 1
-    m_Value: 0.78
+    m_Value: 3
   scatter:
     m_OverrideState: 1
-    m_Value: 0.78
+    m_Value: 0.85
   clamp:
     m_OverrideState: 1
     m_Value: 65472
@@ -13964,7 +13968,7 @@ MonoBehaviour:
     m_Value: {r: 1, g: 1, b: 1, a: 1}
   highQualityFiltering:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 1
   filter:
     m_OverrideState: 1
     m_Value: 0

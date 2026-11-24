@@ -44,7 +44,7 @@ Shader "FireworkStudio/CrackleOnlyGlow"
                 float r2=dot(p,p);
                 half core=exp2(-r2*22);
                 half halo=exp2(-r2*5)*.20;
-                half crossGlow=(exp2(-p.x*p.x*170-p.y*p.y*14)+exp2(-p.y*p.y*170-p.x*p.x*14))*.10;
+                half crossGlow=(exp2(-p.x*p.x*140-p.y*p.y*5)+exp2(-p.y*p.y*140-p.x*p.x*5))*.28;
                 half edge=1-smoothstep(.70,1.0,max(abs(p.x),abs(p.y)));
                 half alpha=saturate((core+halo+crossGlow)*edge*i.color.a);
                 // HDR lives in the material, not in clamped Color32 particle channels.

@@ -251,11 +251,8 @@ namespace FireworkStudio
         FireworkPalette ChoosePalette()
         {
             if (!randomPalette) return fixedPalette;
-            FireworkPalette[] choices = { FireworkPalette.Cyan, FireworkPalette.Pink, FireworkPalette.Violet,
-                FireworkPalette.Ice, FireworkPalette.Mixed, FireworkPalette.Gold, FireworkPalette.Green,
-                FireworkPalette.Red, FireworkPalette.Rainbow, FireworkPalette.Orange, FireworkPalette.Amber,
-                FireworkPalette.RoyalBlue, FireworkPalette.Teal, FireworkPalette.Magenta, FireworkPalette.Lime,
-                FireworkPalette.Sunset, FireworkPalette.Aurora, FireworkPalette.Candy };
+            FireworkPalette[] choices = { FireworkPalette.Pink, FireworkPalette.Violet,
+                FireworkPalette.Ice, FireworkPalette.Gold, FireworkPalette.Aurora, FireworkPalette.Candy };
             return choices[Random.Range(0, choices.Length)];
         }
 

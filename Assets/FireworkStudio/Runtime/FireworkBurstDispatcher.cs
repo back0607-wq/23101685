@@ -15,7 +15,7 @@ namespace FireworkStudio
                 return; // Never build the main burst or the old afterburst for this mode.
             }
             VideoBurstController.Spawn(skyPosition, pattern, palette, useCustomColor,
-                customColor, FireworkShowRules.UsesLegacyAfterburst(mode));
+                customColor, FireworkShowRules.UsesLegacyAfterburst(mode), orientation);
         }
     }
 }

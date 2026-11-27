@@ -45,15 +45,15 @@ Unity 재생 모드에서 촬영했습니다. 불줄기가 아래로 휘어 사�
 
 ### 꽃 모양
 
-![{title} 모양 복합형 폭죽](docs/media/combined-flower.gif)
+![꽃 모양 복합형 폭죽](docs/media/combined-flower.gif)
 
 ### 별 모양
 
-![{title} 모양 복합형 폭죽](docs/media/combined-star.gif)
+![별 모양 복합형 폭죽](docs/media/combined-star.gif)
 
 ### 하트 모양
 
-![{title} 모양 복합형 폭죽](docs/media/combined-heart.gif)
+![하트 모양 복합형 폭죽](docs/media/combined-heart.gif)
 
 ## ✅ 현재 구현된 기능
 

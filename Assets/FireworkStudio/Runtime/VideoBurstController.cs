@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace FireworkStudio
@@ -15,10 +14,10 @@ namespace FireworkStudio
         Color[] CurrentColors() { return customMode ? new[] {customColor, Color.Lerp(customColor, new Color(0.25f,0.25f,0.25f), 0.12f), customColor * 0.83f} : FireworkPaletteUtil.GetColors(palette); }
         Color CurrentColor() { var colors=CurrentColors(); return colors[Random.Range(0,colors.Length)]; }
         Quaternion shapeRotation;
-        List<Vector3> endpoints;
-        ParticleSystem.Particle[] trackedSparks;
         Light flash;
         ParticleSystem mainBurst;
+        ParticleSystem terminalRibbons;
+        int terminalRibbonCount;
         ParticleSystem highlights;
         ParticleSystem embers;
         ParticleSystem smoke;
@@ -61,12 +60,14 @@ namespace FireworkStudio
             fx.shapeRotation = orientation ?? (viewer != null ? Quaternion.LookRotation((position - viewer.transform.position).normalized, Vector3.up) : Quaternion.identity);
             if (includeAfterburst)
             {
-                fx.endpoints = new List<Vector3>(MainSparkCount);
-                fx.trackedSparks = new ParticleSystem.Particle[MainSparkCount];
+                var settings = Secondary.AfterburstSettings.GetOrCreate();
+                if (settings.enabledAfterburst && settings.enableTerminalCrackle)
+                    fx.terminalRibbonCount = Mathf.Clamp(settings.terminalClusters, 1, MainSparkCount);
             }
             fx.Build();
             if (includeAfterburst)
-                FireworkStudio.Secondary.AfterburstSequence.Attach(go, position, palette, pattern, fx.shapeRotation, useCustomColor ? (Color?)custom : null, fx.endpoints);
+                Secondary.AfterburstSequence.Attach(position, palette, pattern, fx.shapeRotation,
+                    useCustomColor ? (Color?)custom : null, fx.terminalRibbons, fx.terminalRibbonCount);
         }
 
         void Build()
@@ -88,6 +89,17 @@ namespace FireworkStudio
             mainTrails.lifetime = 0.16f;
             mainTrails.widthOverTrail = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.9f, 1f, 0f));
             ConfigureFallingRibbons(mainBurst, shapeRotation * Vector3.forward);
+            if (terminalRibbonCount > 0)
+            {
+                // Keep the original trail budget while guaranteeing that every tracked head has a ribbon.
+                terminalRibbons = Instantiate(mainBurst, transform, false);
+                terminalRibbons.name = "Crackle ribbons";
+                var terminalTrails = terminalRibbons.trails;
+                terminalTrails.ratio = 1f;
+                mainTrails.ratio = terminalRibbonCount < MainSparkCount
+                    ? Mathf.Clamp01((0.70f * MainSparkCount - terminalRibbonCount) / (MainSparkCount - terminalRibbonCount))
+                    : 0f;
+            }
             var twinkleTrails = highlights.trails;
             twinkleTrails.ratio = 0.42f;
             twinkleTrails.lifetime = 0.09f;
@@ -191,6 +203,7 @@ namespace FireworkStudio
         {
             flash.intensity=11f;
             FireworkAudio.MainBurst(transform.position, pattern); // actual main VFX onset
+            FireworkWaterReflection.ReflectBurst(transform.position, flash.color);
             EmitSmoke(18, 0.10f);
             Emit(mainBurst, MainSparkCount, 13.2f, 13.8f, 2.0f, 2.6f, 0.42f, 0.62f, true);
             yield return new WaitForSeconds(0.11f);
@@ -311,22 +324,10 @@ namespace FireworkStudio
             smoke.Play();
         }
 
-        void LateUpdate()
-        {
-            if (trackedSparks == null) return;
-
-            // Particle indices can change when sparks expire. The seed identifies the original spark.
-            int count = mainBurst.GetParticles(trackedSparks);
-            for (int i = 0; i < count; i++)
-            {
-                var spark = trackedSparks[i];
-                endpoints[(int)spark.randomSeed - 1] = spark.position;
-            }
-        }
-
         void Emit(ParticleSystem ps, int count,float sMin,float sMax,float lMin,float lMax,float zMin,float zMax,bool shaped)
         {
             var colors=CurrentColors();
+            bool trackRibbons = ps == mainBurst && terminalRibbons != null;
             for(int i=0;i<count;i++)
             {
                 var dir = shaped ? shapeRotation * CrackleOnlyLayout.SampleVolume(pattern, i, count) : Random.onUnitSphere;
@@ -334,11 +335,8 @@ namespace FireworkStudio
                 ep.position=transform.position; // World-space simulation: emit at actual sky burst coordinates.
                 ep.velocity=dir*Random.Range(sMin,sMax);
                 ep.startLifetime=Random.Range(lMin,lMax);
-                if (ps == mainBurst && endpoints != null)
-                {
+                if (ps == mainBurst && terminalRibbons != null)
                     ep.randomSeed = (uint)(i + 1);
-                    endpoints.Add(ep.position);
-                }
                 ep.startSize=Random.Range(zMin,zMax);
                 // Keep emission vivid: excessive HDR particle RGB can clip channels to white.
                 Color tint = colors[i % colors.Length];
@@ -350,9 +348,15 @@ namespace FireworkStudio
                     tint *= Mathf.Lerp(1.15f, 0.78f, Mathf.InverseLerp(-0.72f, 0.72f, depth));
                 }
                 ep.startColor=tint*Random.Range(1.05f,1.30f);
-                ps.Emit(ep,1);
+                // Spread tracked heads across the burst pattern instead of choosing adjacent samples.
+                if (trackRibbons && i * terminalRibbonCount / count != (i + 1) * terminalRibbonCount / count)
+                    terminalRibbons.Emit(ep, 1);
+                else
+                    ps.Emit(ep,1);
             }
             ps.Play();
+            if (trackRibbons)
+                terminalRibbons.Play();
         }
 
     }

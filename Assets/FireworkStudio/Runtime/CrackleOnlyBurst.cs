@@ -135,6 +135,7 @@ namespace FireworkStudio
             ep.startColor=Color.Lerp(tint,Color.white,.12f);
             flashes.Emit(ep,1); remainingBudget--;
             FireworkAudio.Crackle(centre, pop.repeat ? .72f : 1f); // independent pop/re-pop schedule
+            FireworkWaterReflection.ReflectCrackle(centre, tint);
             int n=Mathf.Min(remainingBudget,rng.Next(Mathf.Max(3,options.sparksPerPop-2),options.sparksPerPop+1));
             for(int i=0;i<n;i++)
             {

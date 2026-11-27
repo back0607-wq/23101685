@@ -25,7 +25,8 @@ namespace FireworkStudio.Secondary
         Quaternion orientation = Quaternion.identity;
         Color? sourceTint;
         GameObject effectRoot;
-        List<Vector3> mainEndpoints;
+        ParticleSystem terminalRibbons;
+        int terminalRibbonCount;
         struct StreakEndpoint
         {
             public Vector3 position;
@@ -33,9 +34,9 @@ namespace FireworkStudio.Secondary
         }
         readonly System.Collections.Generic.List<StreakEndpoint> streakEnds = new System.Collections.Generic.List<StreakEndpoint>();
 
-        public static void Attach(GameObject burst, Vector3 origin, FireworkPalette palette,
+        public static void Attach(Vector3 origin, FireworkPalette palette,
             FireworkPattern? sourcePattern = null, Quaternion? orientation = null, Color? sourceTint = null,
-            List<Vector3> mainEndpoints = null)
+            ParticleSystem terminalRibbons = null, int terminalRibbonCount = 0)
         {
             var settings = AfterburstSettings.GetOrCreate();
             if (!settings.enabledAfterburst) { Debug.LogWarning("[Firework Crackle] Afterburst disabled in Settings."); return; }
@@ -51,7 +52,8 @@ namespace FireworkStudio.Secondary
             sequence.sourcePattern = sourcePattern;
             sequence.orientation = orientation ?? Quaternion.identity;
             sequence.sourceTint = sourceTint;
-            sequence.mainEndpoints = mainEndpoints;
+            sequence.terminalRibbons = terminalRibbons;
+            sequence.terminalRibbonCount = terminalRibbonCount;
             sequence.StartCoroutine(sequence.Play());
         }
 
@@ -77,6 +79,9 @@ namespace FireworkStudio.Secondary
             var flashes = Layer(effectRoot.transform,"Terminal crackle - bright terminal pops",0.02f,0.32f, crackleMaterial);
             var chosen = sourcePattern.HasValue ? AfterburstStyle.StarSphere : ChooseStyle(settings.style);
             int budget = Mathf.Max(40, settings.maxParticlesPerBurst);
+            Coroutine ribbonPops = null;
+            if (settings.enableTerminalCrackle && terminalRibbons != null)
+                ribbonPops = StartCoroutine(EmitRibbonCrackles(crackle, flashes, chosen));
             // This is relative to the afterburst start, not the rocket launch.
             EmitStyled(layerA, chosen, Mathf.RoundToInt(Mathf.Min(budget * .62f, 240) * settings.density),false, true);
             FireworkStudio.FireworkAudio.Afterburst(origin); // only when this layer actually emits
@@ -84,16 +89,13 @@ namespace FireworkStudio.Secondary
             EmitStyled(layerB, chosen, Mathf.RoundToInt(Mathf.Min(budget * .22f, 120) * settings.density),true);
             yield return new WaitForSeconds(0.42f);
             EmitStyled(layerC, chosen, Mathf.RoundToInt(Mathf.Min(budget * .16f, 90) * settings.density),true);
-            if (settings.enableTerminalCrackle)
+            if (ribbonPops != null)
+                yield return ribbonPops;
+            else if (settings.enableTerminalCrackle)
             {
                 // Three layer timings above take 0.73s. Wait until the primary
                 // streaks are nearly extinguished before terminal microbursts.
                 yield return new WaitForSeconds(Mathf.Max(0f, settings.terminalFirstPopDelay - 0.73f));
-                // Take a snapshot as the main ribbons fade, keeping the pop positions stable
-                // while the crackles play across multiple frames.
-                if (mainEndpoints != null)
-                    foreach (var point in mainEndpoints)
-                        streakEnds.Add(new StreakEndpoint { position = point, arrivalTime = settings.terminalFirstPopDelay });
                 Debug.Log($"[Firework Crackle] Playing endpoint pops: endpoints={streakEnds.Count} clusters={settings.terminalClusters}");
                 yield return StartCoroutine(EmitTerminalCrackle(crackle, flashes, chosen));
             }
@@ -103,6 +105,30 @@ namespace FireworkStudio.Secondary
             Destroy(crackleMaterial, 6f);
             Destroy(texture, 6f);
             Destroy(gameObject, 6.1f);
+        }
+
+        IEnumerator EmitRibbonCrackles(ParticleSystem sparks, ParticleSystem flashes, AfterburstStyle style)
+        {
+            const float remainingLifeAtPop = 0.12f;
+            var heads = new ParticleSystem.Particle[terminalRibbonCount];
+            var popped = new HashSet<uint>();
+            var colors = sourceTint.HasValue ? new[] { sourceTint.Value } : FireworkPaletteUtil.GetColors(palette);
+
+            // Read the live head in world space. Each ribbon pops once, as its own light fades.
+            while (terminalRibbons != null && terminalRibbons.IsAlive(false) && popped.Count < terminalRibbonCount)
+            {
+                int count = terminalRibbons.GetParticles(heads);
+                for (int i = 0; i < count; i++)
+                {
+                    var head = heads[i];
+                    if (head.remainingLifetime > head.startLifetime * remainingLifeAtPop || !popped.Add(head.randomSeed))
+                        continue;
+
+                    EmitCrackle(sparks, flashes, style, colors, head.position);
+                }
+                yield return null;
+            }
+            Debug.Log($"[Firework Crackle] Ribbon endpoint pops: {popped.Count}/{terminalRibbonCount}");
         }
 
         void ReleaseSlot()
@@ -125,9 +151,7 @@ namespace FireworkStudio.Secondary
             // Pop near ACTUAL primary-streak end locations, not the shell center.
             // Start after the streaks dim. Vary cluster position/time/energy.
             int clusters = Mathf.Max(1, settings.terminalClusters);
-            int maximumSparks = Mathf.Max(2, settings.sparksPerCluster);
             var colors = sourceTint.HasValue ? new[] { sourceTint.Value } : FireworkPaletteUtil.GetColors(palette);
-            var ep = new ParticleSystem.EmitParams();
             float spread = Mathf.Max(0.08f, settings.terminalSpreadDelay);
             float step = spread / clusters;
             if (streakEnds.Count == 0)
@@ -142,29 +166,39 @@ namespace FireworkStudio.Secondary
                 var end = streakEnds[UnityEngine.Random.Range(0, streakEnds.Count)];
                 Vector3 centre = end.position + UnityEngine.Random.insideUnitSphere *
                     Mathf.Lerp(0.18f, 1.1f, settings.terminalRandomness);
-                Color tint = chosen == AfterburstStyle.GoldenWillow
-                    ? new Color(1f, 0.68f, 0.24f) : colors[UnityEngine.Random.Range(0, colors.Length)];
-                int sparkCount = UnityEngine.Random.Range(Mathf.Max(2, maximumSparks / 2), maximumSparks + 1);
-                // A brief, readable white-hot core at each endpoint.
-                ep.position = centre;
-                ep.velocity = Vector3.zero;
-                ep.startSize = UnityEngine.Random.Range(0.48f, 0.78f) * settings.sizeMultiplier * settings.terminalSizeMultiplier;
-                ep.startLifetime = UnityEngine.Random.Range(0.11f, 0.20f);
-                ep.startColor = Color.Lerp(tint, Color.white, 0.35f) * settings.terminalSparkBrightness;
-                flashes.Emit(ep, 1);
-                FireworkStudio.FireworkAudio.Crackle(centre); // actual endpoint, actual terminal-pop time
-                for (int i = 0; i < sparkCount; i++)
-                {
-                    ep.position = centre; // World-space simulation; this is an absolute coordinate.
-                    ep.velocity = UnityEngine.Random.onUnitSphere * UnityEngine.Random.Range(1.8f, 5.5f);
-                    ep.startSize = UnityEngine.Random.Range(0.19f, 0.34f) * settings.sizeMultiplier * settings.terminalSizeMultiplier;
-                    ep.startLifetime = UnityEngine.Random.Range(0.24f, 0.56f);
-                    Color flash = Color.Lerp(tint, Color.white, UnityEngine.Random.Range(0.12f, 0.35f));
-                    ep.startColor = flash * settings.terminalSparkBrightness * 1.5f;
-                    ps.Emit(ep, 1);
-                }
+                EmitCrackle(ps, flashes, chosen, colors, centre);
                 // Distant little pops are intentionally irregular, not a uniform ring.
                 yield return new WaitForSeconds(step * UnityEngine.Random.Range(0.3f, 1.7f));
+            }
+        }
+
+        void EmitCrackle(ParticleSystem sparks, ParticleSystem flashes, AfterburstStyle style, Color[] colors, Vector3 position)
+        {
+            Color tint = style == AfterburstStyle.GoldenWillow
+                ? new Color(1f, 0.68f, 0.24f) : colors[UnityEngine.Random.Range(0, colors.Length)];
+            int maximumSparks = Mathf.Max(2, settings.sparksPerCluster);
+            int sparkCount = UnityEngine.Random.Range(Mathf.Max(2, maximumSparks / 2), maximumSparks + 1);
+
+            var emission = new ParticleSystem.EmitParams
+            {
+                position = position,
+                velocity = Vector3.zero,
+                startSize = UnityEngine.Random.Range(0.48f, 0.78f) * settings.sizeMultiplier * settings.terminalSizeMultiplier,
+                startLifetime = UnityEngine.Random.Range(0.11f, 0.20f),
+                startColor = Color.Lerp(tint, Color.white, 0.35f) * settings.terminalSparkBrightness
+            };
+            flashes.Emit(emission, 1);
+            FireworkAudio.Crackle(position);
+            FireworkWaterReflection.ReflectCrackle(position, tint);
+
+            for (int i = 0; i < sparkCount; i++)
+            {
+                emission.velocity = UnityEngine.Random.onUnitSphere * UnityEngine.Random.Range(1.8f, 5.5f);
+                emission.startSize = UnityEngine.Random.Range(0.19f, 0.34f) * settings.sizeMultiplier * settings.terminalSizeMultiplier;
+                emission.startLifetime = UnityEngine.Random.Range(0.24f, 0.56f);
+                Color flash = Color.Lerp(tint, Color.white, UnityEngine.Random.Range(0.12f, 0.35f));
+                emission.startColor = flash * settings.terminalSparkBrightness * 1.5f;
+                sparks.Emit(emission, 1);
             }
         }
 

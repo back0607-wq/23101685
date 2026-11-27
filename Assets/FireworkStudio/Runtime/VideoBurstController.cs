@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace FireworkStudio
@@ -6,6 +7,7 @@ namespace FireworkStudio
     // Particle-based fireworks: world-space emission must use the sky burst position.
     public sealed class VideoBurstController : MonoBehaviour
     {
+        const int MainSparkCount = 220;
         FireworkPattern pattern;
         FireworkPalette palette;
         bool customMode;
@@ -13,8 +15,8 @@ namespace FireworkStudio
         Color[] CurrentColors() { return customMode ? new[] {customColor, Color.Lerp(customColor, new Color(0.25f,0.25f,0.25f), 0.12f), customColor * 0.83f} : FireworkPaletteUtil.GetColors(palette); }
         Color CurrentColor() { var colors=CurrentColors(); return colors[Random.Range(0,colors.Length)]; }
         Quaternion shapeRotation;
-        float terminalTime = 2f;
-        readonly System.Collections.Generic.List<Vector3> endpoints = new System.Collections.Generic.List<Vector3>();
+        List<Vector3> endpoints;
+        ParticleSystem.Particle[] trackedSparks;
         Light flash;
         ParticleSystem mainBurst;
         ParticleSystem highlights;
@@ -59,8 +61,8 @@ namespace FireworkStudio
             fx.shapeRotation = orientation ?? (viewer != null ? Quaternion.LookRotation((position - viewer.transform.position).normalized, Vector3.up) : Quaternion.identity);
             if (includeAfterburst)
             {
-                var afterburst = FireworkStudio.Secondary.AfterburstSettings.GetOrCreate();
-                fx.terminalTime = afterburst.startDelay + afterburst.terminalFirstPopDelay;
+                fx.endpoints = new List<Vector3>(MainSparkCount);
+                fx.trackedSparks = new ParticleSystem.Particle[MainSparkCount];
             }
             fx.Build();
             if (includeAfterburst)
@@ -85,6 +87,7 @@ namespace FireworkStudio
             mainTrails.ratio = 0.70f;
             mainTrails.lifetime = 0.16f;
             mainTrails.widthOverTrail = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.9f, 1f, 0f));
+            ConfigureFallingRibbons(mainBurst, shapeRotation * Vector3.forward);
             var twinkleTrails = highlights.trails;
             twinkleTrails.ratio = 0.42f;
             twinkleTrails.lifetime = 0.09f;
@@ -106,6 +109,36 @@ namespace FireworkStudio
             flash.intensity = 0;
             flash.shadows = LightShadows.None;
             StartCoroutine(PlayBurst());
+        }
+
+        static void ConfigureFallingRibbons(ParticleSystem sparks, Vector3 patternNormal)
+        {
+            // Let the silhouette open first, then ease the radial motion into a falling hook.
+            var motion = sparks.velocityOverLifetime;
+            motion.enabled = true;
+            motion.space = ParticleSystemSimulationSpace.World;
+            motion.x = LateVelocity(-5f, 5f);
+            motion.y = LateVelocity(-20f, -15f);
+            motion.z = LateVelocity(-4f, 4f);
+            // Curl around the pattern's own axis so upward and angled shots read the same way.
+            var sweep = AnimationCurve.EaseInOut(0.20f, 0f, 0.70f, 0.52f);
+            motion.orbitalX = new ParticleSystem.MinMaxCurve(patternNormal.x, sweep);
+            motion.orbitalY = new ParticleSystem.MinMaxCurve(patternNormal.y, sweep);
+            motion.orbitalZ = new ParticleSystem.MinMaxCurve(patternNormal.z, sweep);
+            motion.speedModifier = new ParticleSystem.MinMaxCurve(1f,
+                AnimationCurve.EaseInOut(0.20f, 1f, 0.82f, 0.28f));
+
+            var trails = sparks.trails;
+            trails.minVertexDistance = 0.16f;
+            trails.lifetime = new ParticleSystem.MinMaxCurve(1f,
+                AnimationCurve.EaseInOut(0.16f, 0.16f, 0.60f, 0.40f));
+        }
+
+        static ParticleSystem.MinMaxCurve LateVelocity(float min, float max)
+        {
+            return new ParticleSystem.MinMaxCurve(1f,
+                AnimationCurve.EaseInOut(0.20f, 0f, 0.78f, min),
+                AnimationCurve.EaseInOut(0.20f, 0f, 0.78f, max));
         }
 
         ParticleSystem NewLayer(string name, float size, float gravity, int max, bool falling)
@@ -159,7 +192,7 @@ namespace FireworkStudio
             flash.intensity=11f;
             FireworkAudio.MainBurst(transform.position, pattern); // actual main VFX onset
             EmitSmoke(18, 0.10f);
-            Emit(mainBurst, 220, 13.2f, 13.8f, 2.0f, 2.6f, 0.42f, 0.62f, true);
+            Emit(mainBurst, MainSparkCount, 13.2f, 13.8f, 2.0f, 2.6f, 0.42f, 0.62f, true);
             yield return new WaitForSeconds(0.11f);
             EmitOrnaments();
             Emit(highlights, 72, 12.4f, 13.2f, 0.7f, 1.4f, 0.11f, 0.20f, true);
@@ -278,6 +311,19 @@ namespace FireworkStudio
             smoke.Play();
         }
 
+        void LateUpdate()
+        {
+            if (trackedSparks == null) return;
+
+            // Particle indices can change when sparks expire. The seed identifies the original spark.
+            int count = mainBurst.GetParticles(trackedSparks);
+            for (int i = 0; i < count; i++)
+            {
+                var spark = trackedSparks[i];
+                endpoints[(int)spark.randomSeed - 1] = spark.position;
+            }
+        }
+
         void Emit(ParticleSystem ps, int count,float sMin,float sMax,float lMin,float lMax,float zMin,float zMax,bool shaped)
         {
             var colors=CurrentColors();
@@ -288,10 +334,10 @@ namespace FireworkStudio
                 ep.position=transform.position; // World-space simulation: emit at actual sky burst coordinates.
                 ep.velocity=dir*Random.Range(sMin,sMax);
                 ep.startLifetime=Random.Range(lMin,lMax);
-                if (ps == mainBurst)
+                if (ps == mainBurst && endpoints != null)
                 {
-                    float endTime = Mathf.Min(terminalTime, ep.startLifetime * 0.94f);
-                    endpoints.Add(transform.position + ep.velocity * endTime + 0.5f * Physics.gravity * 0.26f * endTime * endTime);
+                    ep.randomSeed = (uint)(i + 1);
+                    endpoints.Add(ep.position);
                 }
                 ep.startSize=Random.Range(zMin,zMax);
                 // Keep emission vivid: excessive HDR particle RGB can clip channels to white.

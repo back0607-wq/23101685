@@ -43,17 +43,9 @@ Unity Hub에서 프로젝트를 열고 [메인 씬](Assets/VR_23101685%201/vr_23
 
 Unity 재생 모드에서 촬영했습니다. 불줄기가 아래로 휘어 사그라들 때 끝에서 크랙클이 이어집니다.
 
-### 꽃 모양
-
-![꽃 모양 복합형 폭죽](docs/media/combined-flower.gif)
-
-### 별 모양
-
-![별 모양 복합형 폭죽](docs/media/combined-star.gif)
-
-### 하트 모양
-
-![하트 모양 복합형 폭죽](docs/media/combined-heart.gif)
+| 꽃 모양 | 별 모양 | 하트 모양 |
+| :---: | :---: | :---: |
+| <img src="docs/media/combined-flower.gif" width="240" alt="꽃 모양 복합형 폭죽"> | <img src="docs/media/combined-star.gif" width="240" alt="별 모양 복합형 폭죽"> | <img src="docs/media/combined-heart.gif" width="240" alt="하트 모양 복합형 폭죽"> |
 
 ## ✅ 현재 구현된 기능
 

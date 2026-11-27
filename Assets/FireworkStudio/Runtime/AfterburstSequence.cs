@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using FireworkStudio;
 
@@ -24,6 +25,7 @@ namespace FireworkStudio.Secondary
         Quaternion orientation = Quaternion.identity;
         Color? sourceTint;
         GameObject effectRoot;
+        List<Vector3> mainEndpoints;
         struct StreakEndpoint
         {
             public Vector3 position;
@@ -33,7 +35,7 @@ namespace FireworkStudio.Secondary
 
         public static void Attach(GameObject burst, Vector3 origin, FireworkPalette palette,
             FireworkPattern? sourcePattern = null, Quaternion? orientation = null, Color? sourceTint = null,
-            System.Collections.Generic.List<Vector3> mainEndpoints = null)
+            List<Vector3> mainEndpoints = null)
         {
             var settings = AfterburstSettings.GetOrCreate();
             if (!settings.enabledAfterburst) { Debug.LogWarning("[Firework Crackle] Afterburst disabled in Settings."); return; }
@@ -49,9 +51,7 @@ namespace FireworkStudio.Secondary
             sequence.sourcePattern = sourcePattern;
             sequence.orientation = orientation ?? Quaternion.identity;
             sequence.sourceTint = sourceTint;
-            if (mainEndpoints != null)
-                foreach (var point in mainEndpoints)
-                    sequence.streakEnds.Add(new StreakEndpoint { position = point, arrivalTime = settings.terminalFirstPopDelay });
+            sequence.mainEndpoints = mainEndpoints;
             sequence.StartCoroutine(sequence.Play());
         }
 
@@ -77,7 +77,6 @@ namespace FireworkStudio.Secondary
             var flashes = Layer(effectRoot.transform,"Terminal crackle - bright terminal pops",0.02f,0.32f, crackleMaterial);
             var chosen = sourcePattern.HasValue ? AfterburstStyle.StarSphere : ChooseStyle(settings.style);
             int budget = Mathf.Max(40, settings.maxParticlesPerBurst);
-            // Capture predicted world-space endpoints of real primary streaks.
             // This is relative to the afterburst start, not the rocket launch.
             EmitStyled(layerA, chosen, Mathf.RoundToInt(Mathf.Min(budget * .62f, 240) * settings.density),false, true);
             FireworkStudio.FireworkAudio.Afterburst(origin); // only when this layer actually emits
@@ -90,6 +89,11 @@ namespace FireworkStudio.Secondary
                 // Three layer timings above take 0.73s. Wait until the primary
                 // streaks are nearly extinguished before terminal microbursts.
                 yield return new WaitForSeconds(Mathf.Max(0f, settings.terminalFirstPopDelay - 0.73f));
+                // Take a snapshot as the main ribbons fade, keeping the pop positions stable
+                // while the crackles play across multiple frames.
+                if (mainEndpoints != null)
+                    foreach (var point in mainEndpoints)
+                        streakEnds.Add(new StreakEndpoint { position = point, arrivalTime = settings.terminalFirstPopDelay });
                 Debug.Log($"[Firework Crackle] Playing endpoint pops: endpoints={streakEnds.Count} clusters={settings.terminalClusters}");
                 yield return StartCoroutine(EmitTerminalCrackle(crackle, flashes, chosen));
             }
